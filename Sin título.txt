@@ -1,5 +1,0 @@
-java -jar goalrecognizer1.2.jar -filter dataset_rlrecog_r2009/blocks-test/100/pb1_100.tar.bz2 0
-java -jar goalrecognizer1.2.jar -filter dataset_rlrecog_r2009/blocks-test/100/pb2_100.tar.bz2 0
-java -jar goalrecognizer1.2.jar -filter dataset_rlrecog_r2009/blocks-test/100/pb3_100.tar.bz2 0
-
-

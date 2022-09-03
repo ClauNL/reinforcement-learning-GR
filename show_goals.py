@@ -35,13 +35,11 @@ def goalRecognition(observation, policies, actions, real_goal, num_goals, distan
     for goal in range(num_goals):
         q = policies[goal]
         if distance == 'MaxUtil':
-            dist = MaxUtil2(q, actions, observation)
+            dist = MaxUtil(q, actions, observation)
         elif distance == 'KL':
-            dist = KL2(q, actions, observation)
-        elif distance == 'KL2':
-            dist = kl_divergence_norm_softmax(q, actions, observation)
+            dist = KL(q, actions, observation)
         elif distance == 'DP':
-            dist = DP2(q, actions, observation)
+            dist = DP(q, actions, observation)
         
 
         print(f'goal {goal}: {dist}' )
@@ -70,7 +68,7 @@ folder = 'output/skgrid_gr_test_show/'
 # for domain in [BLOCKS]:
 
 
-# results = pd.DataFrame()
+results = pd.DataFrame()
 # results2 = pd.DataFrame()
 results3 = {}
 maxutil = {}
@@ -115,69 +113,73 @@ for o in range(len(trace)):
     # print(o)
     # print(trace[:o+1])
 
-    for metric in ['MaxUtil', 'DP', 'KL', 'KL2']:
+    for metric in ['MaxUtil', 'DP', 'KL']:
         distances, correct, pred_goal = goalRecognition(trace[:o+1], policies, actions, real_goal, n_goals, metric)
 
-        x2 = {'problem': folder, 'metric': metric,
+        x = {'problem': folder, 'metric': metric,
                 'step': o+1,
-                'g0': distances[0], 'g1': distances[1], 'g2': distances[2], 'g3': distances[3],
-                'scores': sorted(((goal, div) for (goal, div) in enumerate(distances)), key=lambda tup: tup[1]),
-            'real_goal': real_goal, 'pred_goal': pred_goal, 'correct': correct}
-        # results2 = results2.append(x2, ignore_index = True)
+                'g0': distances[0], 'g1': distances[1], 'g2': distances[2], 'g3': distances[3],                
+                'real_goal': real_goal, 'pred_goal': pred_goal, 'correct': correct}
+        x_dictionary = pd.DataFrame([x])
 
-        n = f'{metric}_{o}'
-        results3[n] = x2
+        results = pd.concat([results, x_dictionary], ignore_index=True)
 
-        x3 = {'problem': folder, 
-                'step': o+1,
-                'g0': distances[0], 'g1': distances[1], 'g2': distances[2], 'g3': distances[3],
-                'scores': sorted(((goal, div) for (goal, div) in enumerate(distances)), key=lambda tup: tup[1]),
-            'real_goal': real_goal, 'pred_goal': pred_goal, 'correct': correct}
+        # n = f'{metric}_{o}'
+        # results3[n] = x2
+
+        # x3 = {'problem': folder, 
+        #         'step': o+1,
+        #         'g0': distances[0], 'g1': distances[1], 'g2': distances[2], 'g3': distances[3],
+        #         'scores': sorted(((goal, div) for (goal, div) in enumerate(distances)), key=lambda tup: tup[1]),
+        #     'real_goal': real_goal, 'pred_goal': pred_goal, 'correct': correct}
         
-        if metric == 'MaxUtil': maxutil[o] = x3
-        if metric == 'DP': dp[o] = x3
-        if metric == 'KL': kl[o] = x3
-        if metric == 'KL2': kl2[o] = x3
+        # if metric == 'MaxUtil': maxutil[o] = x3
+        # if metric == 'DP': dp[o] = x3
+        # if metric == 'KL': kl[o] = x3
+        # if metric == 'KL2': kl2[o] = x3
+
+
+# with open(f'results_show/skgrid_gr.pkl', 'wb') as file:
+# #     dill.dump(results3, file)
+results.to_csv(f'results_PROBANDO/GRID_SHOW.csv', index=False)
+
+# # print(maxutil[0]['scores'])
+# # print(maxutil[0]['scores'][0][0])
+# goals = []
+# for key, value in maxutil.items():
+#     # print(value['scores'][0][0])
+#     goals.append(value['scores'][0][0])
 
 
 
-# print(maxutil[0]['scores'])
-# print(maxutil[0]['scores'][0][0])
-goals = []
-for key, value in maxutil.items():
-    # print(value['scores'][0][0])
-    goals.append(value['scores'][0][0])
+# g0 = (7, 1)
+# g1 = (1, 1)
+# g2 = (1, 7)
+# g3 = (7, 7)
 
+# goals_str = []
+# for goal in goals:
+#     if goal == 0: goals_str.append(g0)
+#     if goal == 1: goals_str.append(g1)
+#     if goal == 2: goals_str.append(g2)
+#     if goal == 3: goals_str.append(g3)
 
+# print(goals_str)
 
-g0 = (7, 1)
-g1 = (1, 1)
-g2 = (1, 7)
-g3 = (7, 7)
+# images = []
+# env.fix_problem_index(0)
+# obs, _ = env.reset()
 
-goals_str = []
-for goal in goals:
-    if goal == 0: goals_str.append(g0)
-    if goal == 1: goals_str.append(g1)
-    if goal == 2: goals_str.append(g2)
-    if goal == 3: goals_str.append(g3)
+# for i, (state, action) in enumerate(trace):
+#     images.append(env.render(mode='goals_layout', goals = goals_str[i]))
+#     obs, reward, done, _ = env.step(action)
 
-print(goals_str)
-
-images = []
-env.fix_problem_index(0)
-obs, _ = env.reset()
-
-for i, (state, action) in enumerate(trace):
-    images.append(env.render(mode='goals_layout', goals = goals_str[i]))
-    obs, reward, done, _ = env.step(action)
-
-images.append(env.render(mode='goals_layout', goals = goals_str[i]))
+# images.append(env.render(mode='goals_layout', goals = goals_str[i]))
   
-path = folder + 'results/'
-if not os.path.exists(path): os.makedirs(path)
-imageio.mimwrite(f'{path}/video_OBS_GOAL.mp4', images, fps=3)
-print('Wrote out video')
+# path = folder + 'results/'
+# if not os.path.exists(path): os.makedirs(path)
+# imageio.mimwrite(f'{path}/video_OBS_GOAL.mp4', images, fps=3)
+# print('Wrote out video')
 
 
 # for key, value in maxutil:
@@ -232,9 +234,9 @@ print('Wrote out video')
 # with open(f'results/{name}.pkl', 'wb') as file:
 #     dill.dump(results, file)
 # with open(f'results2/{name}.pkl', 'wb') as file:
-#     dill.dump(results2, file)
-with open(f'results_show/skgrid_gr.pkl', 'wb') as file:
-    dill.dump(results3, file)
+# #     dill.dump(results2, file)
+# with open(f'results_show/skgrid_gr.pkl', 'wb') as file:
+#     dill.dump(results3, file)
 
 
 # print(results2)

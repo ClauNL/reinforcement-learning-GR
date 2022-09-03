@@ -1,0 +1,4 @@
+(on b a),(on a c),(on e d),(clear e),(clear b)
+(on a b),(on b c),(on e d),(clear e),(clear a)
+(on b a),(on a c),(on d e),(clear d),(clear b)
+(on a c),(on c b),(on d e),(clear d),(clear a)

@@ -1,247 +1,623 @@
-import math
-from random import randint
-import joblib
-import numpy as np
-from myfunctions import *
-import pddlgym
-import dill
+from argparse import Action
+from copy import deepcopy
+import csv
+from re import template
+import sys
+import os
+from turtle import textinput
+sys.path.append(os.path.abspath(os.path.join('..')))
+sys.path.append(os.path.abspath(os.path.join('.')))
+import pyperplan.planner as pyperplan
+import pyperplan.pddl.parser as pyparser
+import pyperplan.grounding as grounding
+from pathlib import Path
+import time
+import random
+import pickle
+import pandas as pd
+
+BLOCKS = ['output/blocks_gr/', 'output/blocks_gr2/', 'output/blocks_gr3/', 'output/blocks_gr4/', 'output/blocks_gr5/',
+          'output/blocks_gr6/', 'output/blocks_gr7/', 'output/blocks_gr8/', 'output/blocks_gr9/', 'output/blocks_gr10/']
+
+HANOI = ['output/hanoi_gr/', 'output/hanoi_gr2/', 'output/hanoi_gr3/', 'output/hanoi_gr4/', 'output/hanoi_gr5/',
+         'output/hanoi_gr6/', 'output/hanoi_gr7/', 'output/hanoi_gr8/', 'output/hanoi_gr9/', 'output/hanoi_gr10/']
+
+SKGRID = ['output/skgrid_gr/', 'output/skgrid_gr2/', 'output/skgrid_gr3/', 'output/skgrid_gr4/', 'output/skgrid_gr5/',
+          'output/skgrid_gr6/', 'output/skgrid_gr7/', 'output/skgrid_gr8/', 'output/skgrid_gr9/', 'output/skgrid_gr10/']
+
+from pddlgym_planners.fd import FD
+
+from pddlgym.core import InvalidAction, PDDLEnv
+from myfunctions import solve_fset
+from pddlgym.structs import LiteralConjunction, wrap_goal_literal
+
+RAISE_ERROR_ON_VALID = False
+DYNAMIC_ACTION_SPACE = True
 
 
-# # domainPath = '/Users/cnegrin/Documents/TFG3/test/domain.pddl'
-# # templatePath = '/Users/cnegrin/Documents/TFG3/test/template.pddl'
-# # goalsPath = '/Users/cnegrin/Documents/TFG3/test/hyps.dat'
+# very silly implementation to get action names, replace this after a good parser is found.
+def parse_action(domain):
+    domain.seek(0)
+    action_list = []
+    for line in domain:
+        if '(:action' in line:
+            action_list.append(line.replace(' ', '').replace('\n', '').split('action')[1])
+    return action_list
 
 
-# # outPath = '/Users/cnegrin/Documents/TFG3/test'
-
-# # with open(goalsPath) as file:
-# #     goals = file.readlines()
-# #     goals = [line.rstrip() for line in goals]
-
-
-# # with open(templatePath, 'r') as file :
-# #   filedata = file.read()
-
-
-# # for i, goal in enumerate(goals):
-# #     print(goal)
-# #     filedata = filedata.replace('<HYPOTHESIS>', goal)
-
-# #     with open(f'{outPath}/file{i}.pddl', 'w') as file:
-# #         file.write(filedata)
-
-
-
-
-# # def prueba(goalsPath):
-
-# #     with open(goalsPath) as file:
-# #         goals = file.readlines()
-# #         goals = [line.rstrip() for line in goals]
-
-
-# #     with open(templatePath, 'r') as file :
-# #         filedata = file.read()
+# Adds to a PDDL domain the necessary line to run on PDDLGym
+def complete_domain(domain, path, parser):
+    action_list = parse_action(domain)
+    domain.seek(0)
+    print(path + "/domain.txt")
+    new_domain = open(path + "/domain.pddl", "w")
+    action_string = '; (:actions'
+    for action in action_list:
+        action_string += ' '
+        action_string += action
+    action_string += ')'
+    counter = 0
+    pred_counting = False
+    for line in domain:
+        new_domain.write(line)
+        if '(:predicates' in line:
+            pred_counting = True
+        if pred_counting:
+            if '(': counter += line.count('(')
+            if ')': counter -= line.count(')')
+            # print(line + '' + str(counter))
+        if pred_counting and counter == 0:
+            new_domain.write('')
+            new_domain.write(action_string)
+            new_domain.write('')
+            pred_counting = False
+    new_domain.close()
 
 
-# #     for i, goal in enumerate(goals):
-# #         print(goal)
-# #         filedata = filedata.replace('<HYPOTHESIS>', goal)
+# Converts a pyperplan predicate to a PDDL string
+def pred_to_string(predicate):
+    st = '(' + predicate.name
+    for sig in predicate.signature:
+        st += ' '
+        st += sig[0]
+    st += ')'
+    return st
 
-# #         with open(f'{outPath}/file{i}.pddl', 'w') as file:
-# #             file.write(filedata)
+
+def remove_obs(instance, observability):
+    new_obs = []
+    n_observations = len(instance)
+
+    # Number of observations to remove
+    n_remove = int(n_observations*(1-observability))
+
+    # Randomly sample indices to remove from the states list
+    indices = sorted(random.sample(range(0, n_observations), n_remove))
+
+    # Create new list with states except the indices to remove
+    for i in range(n_observations):
+        if i not in indices:
+            new_obs.append(instance[i])
+    return new_obs
 
 
-# # x = [0,1,2,3,4,5,6,7]
-# # # print(len(x)/2)
-# # # print(np.array_split(x, len(x)/2))
-# # # print(x[:2])
-# # # print(x[:4])
-# # # print(x[:6])
-# # # print(x[:8])
+def complete_problem(problem_file,  goal, number, path):
+    problem_file.seek(0)
+    print('Writing on: ' + path + "/problems/problem" + str(number) + ".pddl")
+    new_problem = open(path + "/problems/problem" + str(number) + ".pddl", "w")
+    action_string = '; action literals'
+    counter = 1
+    init_state = False
+    for line in problem_file:
+        if init_state and counter > 0:
+            if '(': counter += line.count('(')
+            if ')': counter -= line.count(')')
+        if init_state and counter > 0:
+            continue
+        init_state = False
+        if '<HYPOTHESIS>' in line:
+            new_problem.write('\t' + goal)
+            continue
+        new_problem.write(line)
+        if '(:init' in line:
+            init_state = True
 
-# # for i in range(0, len(x), 2):
-# #     # print(i)
-# #     # print(len(x))
-# #     # if i == len(x)-2:
-# #     #     print('ultimo')
+            # for pred in problem.initial_state:
+            #     new_problem.write('\t' + pred_to_string(pred))
+            #     new_problem.write('\n')
+            # new_problem.write('\n')
+            # new_problem.write(action_string)
+            # new_problem.write('\n\t')
+            # for t in task:
+            #     new_problem.write(t.name)
+            #     new_problem.write('\n\t')
+    new_problem.close()
 
-# #     # print(i/2)
-# #     # print(x[:i+2])
+
+def complete_obs(observations, path, name):
+    new_obs = open(path + name, "w")
+    for line in observations:
+        new_obs.write(line)
+    new_obs.close()
+
+def print_task(domain, problem):
+    problem = pyperplan._parse(domain, problem)
+    task = grounding.ground_no_goal(problem)
+    print(task)
+
+def gr_to_gym(d, output='output', obs_per=100):
+    """
+    This is the main method that converts a GR problem directory to a PDDLGym
+    version of the PDDL
+
+    @note Assumption: We assume that the format used in the directory is the same
+    that Ramirez and Geffener use
+
+    @param d            The directory of the problem
+    @param output       The output directory
+    @param obs_per      The percentile of available observation
+    """
+    domain = open(d + "/domain.pddl", "r")
+    hypothesis = open(d + "/hyps.dat")
+    correct_goal = open(d + "/real_hyp.dat")
+    observations = open(d + "/obs.dat")
+    template = open(d + "/template.pddl")
+
+    # parse the domain file, generating a task (grounded actions)
+    # problem = pyperplan._parse(d + "/domain.pddl", d + "/template.pddl")
+    # task = grounding.ground_no_goal(problem)
+
+
+    # filedata = filedata.replace('<HYPOTHESIS>', goal)
+
+    # with open(f'{problem_dir}/template_g{i}.pddl', 'w') as file:
+    #     file.write(filedata)
+            
+
+
+    # Setup directories, still needs some fixing here.
+    Path(output + '/' + d).mkdir(parents=True, exist_ok=True)
+    Path(output + '/' + d + '/problems').mkdir(parents=True, exist_ok=True)
+
+    # Complete domain and multiple problems
+    goals = []
+    for line in hypothesis:
+        goals.append(line)
+    complete_domain(domain, output + '/' + d, None)
+    for count, goal in enumerate(goals):
+        complete_problem(template, goal, count, output + '/' + d)
+
+    # Copy the observations and the correct goal to the desired location
+    complete_obs(observations, output + '/' + d + '/', 'obs.dat')
+    complete_obs(correct_goal, output + '/' + d + '/', 'real_hyp.dat')
+
+
+def gr_to_gym_custom_obs(d, output='output'):
+    domain = open(d + "/domain.pddl", "r")
+    hypothesis = open(d + "/hyps.dat")
+    correct_goal = open(d + "/real_hyp.dat")
+    observations = open(d + "/obs.dat")
+    template = open(d + "/template.pddl")
+
+    # parse the domain file, generating a task (grounded actions)
+    problem = pyperplan._parse(d + "/domain.pddl", d + "/template.pddl")
+    task = grounding.ground_no_goal(problem)
+
+    # Setup directories, still needs some fixing here.
+    Path(output + '/' + d).mkdir(parents=True, exist_ok=True)
+    Path(output + '/' + d + '/problems').mkdir(parents=True, exist_ok=True)
+
+    # Complete domain and multiple problems
+    goals = []
+    for line in hypothesis:
+        goals.append(line)
+    complete_domain(domain, output + '/' + d, None)
+    for count, goal in enumerate(goals):
+        complete_problem(template, problem, task, goal, count, output + '/' + d)
+    # Copy the observations and the correct goal to the desired location
+    complete_obs(observations, output + '/' + d + '/', 'obs.dat')
+    complete_obs(correct_goal, output + '/' + d + '/', 'real_hyp.dat')
+
+
+def create_observabilities(d, output, ind=0):
+    print(output + '/problems')
+    print(d + "/domain.pddl")
+    env = PDDLEnv(d + "/domain.pddl", d + '/problems', raise_error_on_invalid_action=RAISE_ERROR_ON_VALID,
+                  dynamic_action_space=DYNAMIC_ACTION_SPACE)
+    planner = FD()
+    env.fix_problem_index(ind)
+    init, _ = env.reset()
+    print(init.goal)
+    #print(f'GOAL {init.goal}')
+    
+    # traj is an action pair tuple, need to map this to state action number pair
+    plan = planner(env.domain, init)
+    traj = []
+    obs_list = [0.1, 0.3, 0.5, 0.7, 1.0]
+    traj_list = {}
+    for a in plan:
+        state_action_pair = (solve_fset(init.literals), a)
+        traj.append(state_action_pair)
+        init, _, _, _ = env.step(a)
+    print(plan)
+    
+    for obs in obs_list:
+        traj_list[obs] = remove_obs(traj, obs)
+        save_obs(traj_list[obs], output + '/' + 'obs' + str(obs)+'.dat')
+        with open(output + '/' + 'obs' + str(obs) + '.pkl', "wb") as output_file:
+            pickle.dump(traj_list[obs], output_file)
+
+# def create_noisy_observations(d, output, ind=0):
+#     print(output + '/problems')
+#     print(d + "/domain.pddl")
+#     env = PDDLEnv(d + "/domain.pddl", d + '/problems', raise_error_on_invalid_action=RAISE_ERROR_ON_VALID,
+#                   dynamic_action_space=DYNAMIC_ACTION_SPACE)
+#     planner = FD()
+#     env.fix_problem_index(ind)
+#     init, _ = env.reset()
+#     print(init.goal)
+#     #print(f'GOAL {init.goal}')
+    
+#     # traj is an action pair tuple, need to map this to state action number pair
+#     plan = planner(env.domain, init)
+#     traj = []
+#     obs_list = [0.5, 1.0]
+#     traj_list = {}
+#     steps = 0
+#     shift_point = random.randrange(2, len(plan)-1)
+#     #shift_point = 3
+#     new_return = None
+#     for a in plan:
+#         init, _, _, _ = env.step(a)
+#         if steps == shift_point:
+#             saved_state = deepcopy(init)
+#             print('SHIFT', a)
+#         if steps == shift_point -2:
+#             new_return = deepcopy(init)
+#             print('NEW_GOAL', a)
+#         steps += 1
+#     print(plan)
+#     print(saved_state)
+#     new_goal = LiteralConjunction(list(new_return.literals))
+#     print(new_goal)
+#     saved_state = saved_state.with_goal(new_goal)
+#     print(saved_state)
+#     plan2 = planner(env.domain, saved_state)
+#     print(plan2)
+#     print(plan)
+#     #lplan = l[:shift] + l3 + l[shift-2:shift] + l[shift:]
+#     new_plan_list = plan[:shift_point+1] + plan2 + plan[shift_point-1:shift_point+1] + plan[shift_point+1:]
+#     print(new_plan_list)
+
+#     init, _ = env.reset()
+
+#     for a in new_plan_list:
+#         state_action_pair = (solve_fset(init.literals), a)
+#         traj.append(state_action_pair)
+#         init, _, _, _ = env.step(a)
+#     print(len(plan))
+#     print(len(traj))
+
+#     for obs in obs_list:
+#         traj_list[obs] = remove_obs(traj, obs)
+#         save_obs(traj_list[obs], output + '/' + 'obs_noisy' + str(obs)+'.dat')
+#         with open(output + '/' + 'obs_noisy' + str(obs) + '.pkl', "wb") as output_file:
+#             pickle.dump(traj_list[obs], output_file)
+
+
+def validated_gr_problem(d):
+    env = PDDLEnv(d + "/domain.pddl", d + '/problems', raise_error_on_invalid_action=RAISE_ERROR_ON_VALID,
+                  dynamic_action_space=DYNAMIC_ACTION_SPACE)
+    planner = FD()
+    traj = []
+    n_goals = len(env.problems)
+    valid = True
+    for n in range(n_goals):
+        env.fix_problem_index(n)
+        init, _ = env.reset()
+        print(init.goal)
+        plan = planner(env.domain, init)
+        for a in plan:
+            state_action_pair = (solve_fset(init.literals), a)
+            traj.append(state_action_pair)
+            init, _, _, _ = env.step(a)
+        if len(plan) == 0:
+            valid = False
+        print('Goal', n, 'plan len:', len(plan))
+        print(plan)
+    return valid
+
+def save_obs(traj, out):
+    new_obs = open(out, "w")
+    for line in traj:
+        str_out = ''
+        for pred in line[0]:
+            str_out += str(pred) + ' '
+        str_out += ';'
+        str_out += str(line[1])
+        new_obs.write(str_out)
+        new_obs.write('\n')
+    new_obs.close()
+
+# def parse_obs_dat(domain):
+#     with open(domain + 'obs_noisy1.0.dat', "rb") as input_file:
+#         lines = input_file.readlines()
+#         for l in lines:
+#             line = str(l)
+#             action = line.split(';')[-1]
+#             splitted = line.split(';')[0].split(' ')
+#             at_str = splitted[0]
+#             #print(at_str, ':', action )
+#             pos_from = at_str.split(',')[1].split(':')[0]
+#             x = int(pos_from.split('-')[1])
+#             y = int(pos_from.split('-')[2])
+#             if 'dir-down' in action:
+#                 direction = 'dir-down'
+#                 y += 1
+#             if 'dir-up' in action:
+#                 direction = 'dir-up'
+#                 y -= 1
+#             if 'dir-right' in action:
+#                 direction = 'dir-right'
+#                 x += 1
+#             if 'dir-left' in action:
+#                 direction = 'dir-left'
+#                 x -= 1
+#             pos_to = 'pos-' + str(x) + '-' + str(y)
+#             print('(move player-01', pos_from, pos_to, direction + ')')
+
+# def get_length():
+#     length_blocks = []
+#     length_hanoi = []
+#     length_grid = []
+#     ind = 0
+#     planner = FD()
+#     for d in BLOCKS:
+#         env = PDDLEnv(d + "/domain.pddl", d + '/problems', raise_error_on_invalid_action=RAISE_ERROR_ON_VALID,
+#                   dynamic_action_space=DYNAMIC_ACTION_SPACE)
+#         env.fix_problem_index(ind)
+#         init, _ = env.reset()
+#         plan = planner(env.domain, init)
+#         length_blocks.append(len(plan))
+
+#     for d in HANOI:
+#         env = PDDLEnv(d + "/domain.pddl", d + '/problems', raise_error_on_invalid_action=RAISE_ERROR_ON_VALID,
+#                   dynamic_action_space=DYNAMIC_ACTION_SPACE)
+#         env.fix_problem_index(ind)
+#         init, _ = env.reset()
+#         plan = planner(env.domain, init)
+#         length_hanoi.append(len(plan))
+    
+#     for d in SKGRID:
+#         env = PDDLEnv(d + "/domain.pddl", d + '/problems', raise_error_on_invalid_action=RAISE_ERROR_ON_VALID,
+#                   dynamic_action_space=DYNAMIC_ACTION_SPACE)
+#         env.fix_problem_index(ind)
+#         init, _ = env.reset()
+#         plan = planner(env.domain, init)
+#         length_grid.append(len(plan))
+#     print('Blocks - AVG:',sum(length_blocks)/len(length_blocks), 'MIN:', min(length_blocks), 'MAX:', max(length_blocks)  )
+#     print('Hanoi - AVG:',sum(length_hanoi)/len(length_hanoi), 'MIN:', min(length_hanoi), 'MAX:', max(length_hanoi)  )
+#     print('Grid - AVG:',sum(length_grid)/len(length_grid), 'MIN:', min(length_grid), 'MAX:', max(length_grid)  )     
+#     # traj is an action pair tuple, need to map this to state action number pair
+#     #plan = planner(env.domain, init)
+
+# def parse_obs_dat(domain):
+#     with open(domain + 'obs_noisy1.0.dat', "rb") as input_file:
+#         lines = input_file.readlines()
+#         for l in lines:
+#             line = str(l)
+#             action = line.split(';')[-1]
+#             splitted = line.split(';')[0].split(' ')
+#             at_str = splitted[0]
+#             #print(at_str, ':', action )
+#             pos_from = at_str.split(',')[1].split(':')[0]
+#             x = int(pos_from.split('-')[1])
+#             y = int(pos_from.split('-')[2])
+#             if 'dir-down' in action:
+#                 direction = 'dir-down'
+#                 y += 1
+#             if 'dir-up' in action:
+#                 direction = 'dir-up'
+#                 y -= 1
+#             if 'dir-right' in action:
+#                 direction = 'dir-right'
+#                 x += 1
+#             if 'dir-left' in action:
+#                 direction = 'dir-left'
+#                 x -= 1
+#             pos_to = 'pos-' + str(x) + '-' + str(y)
+#             print('(move player-01', pos_from, pos_to, direction + ')')
+
+# def parse_obs_dat_hanoi(domain):
+#     with open(domain + 'obs_noisy1.0.dat', "rb") as input_file:
+#         lines = input_file.readlines()
+#         for l in lines:
+#             line = str(l)
+#             action = line.split(';')[-1]
+#             splitted = line.split(';')[0].split(' ')
+#             #;move(d1:default,peg3:default)
+#             disc1 = action.split(':')[0].split('(')[-1]
+#             to =  action.split(':')[1].split(',')[-1]
+#             #print(to)
+#             for splits in splitted:
+#                 if 'on(' + disc1 in splits:
+#                     #print(splits)
+#                     fromd = splits.split(':')[1].split(',')[-1]
+#                     #print(fromd)
+
+#             #print(at_str, ':', action )
+#             #print(disc1)
+#             #pos_from = at_str.split(',')[1].split(':')[0]
+#             #pos_to = 'pos-' + str(x) + '-' + str(y)
+#             #print('(move player-01', pos_from, pos_to, direction + ')')
+#             print('(move', disc1, fromd, to + ')')
+
+
+# def parse_obs_dat_blocks(domain):
+#     with open(domain + 'obs_noisy1.0.dat', "rb") as input_file:
+#         lines = input_file.readlines()
+#         for l in lines:
+#             line = str(l)
+#             action = line.split(';')[-1]
+#             splitted = line.split(';')[0].split(' ')
+#             #;move(d1:default,peg3:default)
+#             if 'pickup' in action:
+#                 blocka = action.split(':')[0].split('(')[-1]
+#                 print('(pick-up', blocka, 'robot)')
+#             if 'putdown' in action:
+#                 blocka = action.split(':')[0].split('(')[-1]
+#                 print('(put-down', blocka, 'robot)')
+#             if 'unstack' in action:
+#                 blocka = action.split(':')[0].split('(')[-1]
+#                 for splits in splitted:
+#                     if 'on(' + blocka in splits:
+#                         #print(splits)
+#                         fromd = splits.split(':')[1].split(',')[-1]
+#                         #print(fromd)
+#                 print('(unstack', blocka, fromd, 'robot)')
+#             elif 'stack' in action:
+#                 blocka = action.split(':')[0].split('(')[-1]
+#                 blockb = action.split(':')[1].split(',')[-1]
+#                 print('(stack', blocka, blockb, 'robot)')
+#             continue
+            
+#             disc1 = action.split(':')[0].split('(')[-1]
+#             to =  action.split(':')[1].split(',')[-1]
+#             #print(to)
+#             for splits in splitted:
+#                 if 'on(' + disc1 in splits:
+#                     #print(splits)
+#                     fromd = splits.split(':')[1].split(',')[-1]
+#                     #print(fromd)
+
+
+
+
+
+def gr_to_gym2(d, output='output', obs_per=100):
+
+    domain = open(d + "/domain.pddl", "r")
+    hypothesis = open(d + "/hyps.dat")
+    correct_goal = open(d + "/real_hyp.dat")
+    observations = open(d + "/obs.dat")
+    template = open(d + "/template.pddl")
+
+    # Setup directories, still needs some fixing here.
+    Path(output + '/' + d).mkdir(parents=True, exist_ok=True)
+    Path(output + '/' + d + '/problems').mkdir(parents=True, exist_ok=True)
+
+    # Complete domain and multiple problems
+    goals = []
+    for line in hypothesis:
+        goals.append(line)
+        # print(goals)
+    # complete_domain(domain, output + '/' + d, None)
+
+    new_domain = open(output + '/' + d + "/domain.pddl", "w")
+    new_domain.write(domain.read())
+    new_domain.close()
+
+
+    for count, goal in enumerate(goals):
+        complete_problem2(template, goal, count, output + '/' + d)
+
+    # Copy the observations and the correct goal to the desired location
+    env = PDDLEnv(output + '/' + d + '/domain.pddl', output + '/' + d + '/problems/', raise_error_on_invalid_action=True, dynamic_action_space=True)
+    complete_obs2(observations, output + '/' + d + '/', 'obs.dat', env)
+    # complete_obs3(output + '/' + d + '/obs')
+    complete_obs(correct_goal, output + '/' + d + '/', 'real_hyp.dat')
+
+
+def complete_problem2(problem_file,  goal, number, path):
+    problem_file.seek(0)
+    print('Writing on: ' + path + "/problems/problem" + str(number) + ".pddl")
+    new_problem = open(path + "/problems/problem" + str(number) + ".pddl", "w")
+    counter = 1
+    init_state = False
+
+
+    for line in problem_file:
+        if '<HYPOTHESIS>' in line:
+            new_problem.write('\t' + goal)
+            continue
+        new_problem.write(line)
+
+    new_problem.close()
+
+
+
+def complete_obs2(observations, path, name, env):
+    new_obs = open(path + name, "w")
+    n = []
+    for line in observations:
+        new_obs.write(line)
+        n.append(line.strip())
+    with open(path + 'obs.pkl', "wb") as output_file:
+        pickle.dump(n, output_file)
+    new_obs.close()
+
+    obs, _ = env.reset()
+    # state = (sorted(tuple(obs.literals)))
+    # print(str(state).replace(',', '').replace('[', '').replace(']', ''))
+    oo =[]
+    for o in n:
+        state = tuple(sorted(tuple(obs.literals)))
+        state = str(state).replace(',', '').replace('[', '').replace(']', '')
+        action = o
+        oo.append((state, action))
+        obs, reward, done, _ = env.step(action)
+        state = tuple(sorted(tuple(obs.literals)))
 
     
-# #     print(x[i])
-# #     print(x[i+1])
+    for s, a in oo:
+        print(s)
+        print(a)
 
 
-
+    with open(path + 'obs.pkl', "wb") as output_file:
+        pickle.dump(oo, output_file)
     
 
-# # # print(len(x)/2 -1)
+    lal = []
+    with open('/Users/cnegrin/Documents/TFG-NEW/output/blocks_gr/obs1.0.pkl', "rb") as prueba:
+        lal.append(pickle.load(prueba))
 
 
-# # print(math.log(0.1))
-# # print(math.log(0.1) * 0.1)
-
-# # import dill
-
-
-# folder = '/Users/cnegrin/Documents/paper_original/rl_goal_recognition/src/output/blocks_gr/'
-# folder2 = '/Users/cnegrin/Documents/paper_original/rl_goal_recognition/src/output/blocks_gr/policies.pkl'
-# folder3 = '/Users/cnegrin/Documents/paper_original/rl_goal_recognition/src/output/blocks_gr/actions.pkl'
-
-
-# # with open(folder + 'policies.pkl', 'rb') as file:
-# #     policies = dill.load(file)
-
-# # # policies = dill.load('/Users/cnegrin/Documents/paper_original/rl_goal_recognition/src/output/blocks_gr/policies.pkl')
-
-
-# # act = joblib.load(folder3)
-# # print(act)
-
-# # env_name = 'blocks'
-# # env = pddlgym.make(f"PDDLEnvBlocks-v0") 
-# # env.fix_problem_index(0)
-
-# # init, _ = env.reset()
-
-# # q = {'a': 1, 'b':2}
-
-# # print(q)
-
-# # for key, value in q.items():
-# #     print(key, ' : ', value)
+    # for s, a in lal[0]:
+    #     print(s)
+    #     print(a)
+    # obs, reward, done, _ = env.step(action_list[action])
+    #         state = tuple(sorted(tuple(obs.literals)))
 
 
 
-# # action_list = list(env.action_space.all_ground_literals(init, valid_only=False))
-# # print(action_list)
-
-# # actions = len(action_list)
-# # print(actions)
-
-# # state = tuple(sorted(tuple(init.literals)))
-# # print(state)
 
 
-# # q_table = {}
+def complete_obs3( path):
+    obs_traces = []
+    with open(path + '.dat', "rb") as input_file:
+        # obs_traces.append(pickle.load(input_file))
 
-# # if state not in q_table:
-# #     q_table[state] = [0.]*actions
-# # action = np.argmax(q_table[state])  # index of max q action
-# # print(action)
-
-# # print(np.max(q_table[state]))  # max q value
-
-# # print(q_table)
-# # print(action_list[action])
-
-# # # obs, reward, done, _ = env.step(action_list[action])
-# # # next_state = tuple(sorted(tuple(obs.literals)))
-
-# # # action = self.agent_step(reward, next_state)
-
-# # print(randint(0, actions-1))
-
-# # print(q_table[state][5])
-
-# import dill 
-# # with open('/Users/cnegrin/Documents/TFG-NEW/output/blocks_gr_test/actions.pkl', 'rb') as file:
-# #     actions = dill.load(file)
-
-# # print(actions)
-
-# # selected_act = actions[1]
-
-# # print(actions.index(selected_act))
+        with open(path + '.pkl', "wb") as output_file:
+            pickle.dump(input_file, output_file)
 
 
+# gr_to_gym2('/Users/cnegrin/Documents/TFG-NEW/pb9_100', output='OUT_PRUEBA', obs_per=100)
+# folder = '/Users/cnegrin/Documents/TFG-NEW/pb9_100'
+# env = PDDLEnv(folder + 'domain.pddl', folder + 'problems/', raise_error_on_invalid_action=True, dynamic_action_space=True)
 
-# with open('/Users/cnegrin/Documents/TFG-NEW/output/blocks_gr_test/policies.pkl', 'rb') as file:
-#     policies = dill.load(file)
+x_dictionary = {}
+results = {}
+x = {'problem': 'lalal', 'obs': 0.1,
+                    'metric': 'KL', 
+                    'g0': 2, 'g1': 2, 'g2': 2, 'g3': 2, 
+                    'real_goal': 0, 'pred_goal': 0, 'correct': True}
+x_dictionary = pd.DataFrame([x])
+                
+results = pd.concat([results, x_dictionary], ignore_index=True)
 
-# q = policies[0]
-# for state, action in q.items():
-#     print(type(q[state]))
+with open('blocks.csv', 'a') as csv_file:
+    dict_object = csv.DictWriter(csv_file) 
+  
+    dict_object.writerow(dict)
 
-
-# scores = [-4, 0, -2, 0]
-# rankings = sorted(((goal, div) for (goal, div) in enumerate(scores)), key=lambda tup: tup[1])
-# print(rankings)
-
-# correct True
-# goal 0
-# ranking  [(0, -4), (2, -2), (1, 0), (3, 0)]
-
-
-# def measure_confusion(r_output):
-#     prediction = r_output[0]   
-#     ranking = r_output[-1]
-
-#     head = ranking[0]    (0, -4)
-#     tail = ranking[1:]    (2, -2), (1, 0), (3, 0)
-#     fn = int(not prediction)    True --> 0   False --> 1
-#     fp = 0
-#     tn = 0
-#     if prediction:       
-#         for goal_value in tail:
-#             if goal_value[1] == head[1]:
-#                 fp += 1
-#             else:
-#                 tn += 1    
-#     else:
-#         fp = 1
-#         for goal_value in tail[:-1]:
-#             if goal_value[1] == head[1]:
-#                 fp += 1
-#             else:
-#                 tn += 1
-
-#     #      tp               fn                   fp  tn       
-#     return int(prediction), fn, fp, tn
-
-
-obs_traces = []
-
-folder = 'output/skgrid_gr_test_show/'
-d = 'output/skgrid_gr_test_show/'
-output = 'output/skgrid_gr_test_show/obs_show/'
-# create_observabilities(d, output, ind=0)
-
-with open(folder + 'policies.pkl', 'rb') as file:
-    policies = dill.load(file)
-with open(folder + 'actions.pkl', 'rb') as file:
-    actions = dill.load(file)
-
-with open(folder + 'obs1.0.pkl', 'rb') as file:
-    obs_traces.append(pickle.load(file))
-
-# print(actions)
-
-# # [move(dir-down:direction), move(dir-left:direction), move(dir-up:direction), move(dir-right:direction)]
-
-# up = actions[2]
-# right = actions[3]
-
-# ruta = [up, up, up, up, up, up, right, right, right]
-# create_observabilities2(d, output, ruta, ind=0)
-
-pol = policies[0]
-trajectory = obs_traces[0]
-epsilon = 0.
-# converts a trajectory from a planner to a policy
-# where the taken action has 99.99999% probability
-trajectory_as_policy = {}
-for state, action in trajectory:
-    action_index = actions.index(action)
-    actions_len = len(actions)
-    qs = [1e-6 + epsilon/actions_len for _ in range(actions_len)]
-    qs[action_index] = 1. - 1e-6 * (actions_len-1) - epsilon
-    trajectory_as_policy[tuple(state)] = qs
-
-print(trajectory_as_policy.values())
-
-softmax_policy = {state: policy2(pol[state]) for state in pol.keys()}
-
-print(softmax_policy.values())

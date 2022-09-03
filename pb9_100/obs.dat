@@ -1,0 +1,8 @@
+(unstack a b robot)
+(stack a c robot)
+(pick-up b robot)
+(stack b a robot)
+(unstack d e robot)
+(put-down d robot)
+(pick-up e robot)
+(stack e d robot)
