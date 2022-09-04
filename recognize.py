@@ -4,6 +4,7 @@ import sys
 import dill
 import pandas as pd
 from pddlgym.core import PDDLEnv
+import joblib
 
 from myfunctions import *
 
@@ -19,7 +20,6 @@ def recognize(folder, metric, o):
     real_goal = 0
     with open(folder + 'real_hypn.dat', 'rb') as goal:
         real_goal = int(goal.readline())
-
     with open(folder + 'policies.pkl', 'rb') as file:
         policies = dill.load(file)
     with open(folder + 'actions.pkl', 'rb') as file:
@@ -45,7 +45,7 @@ def recognize(folder, metric, o):
 
         
         
-    # print(results)
+    print(results)
     Path(f'{folder}/results_gr/').mkdir(parents=True, exist_ok=True)
     results.to_csv(f'{folder}/results_gr/{metric}_{o}.csv', index=False)
     return results

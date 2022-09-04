@@ -1,13 +1,14 @@
 import math
 import os
 import random
-import matplotlib
+import matplotlib; matplotlib.use('agg')
 
 from pddlgym.core import InvalidAction, PDDLEnv
-from pddlgym_planners.fd import FD; matplotlib.use('agg')
 
 import imageio
 import numpy as np
+
+from pathlib import Path
 
 
 
