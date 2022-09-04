@@ -1,0 +1,2 @@
+problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
+OUT_PRUEBA/skgrid_gr/,0.1,MaxUtil,-0.06404194293356597,-0.1123013719875117,-0.007230051751513955,-0.002170763175660072,0,1,False

@@ -1,0 +1,2 @@
+problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
+OUT_PRUEBA/hanoi_gr/,0.3,DP,-3,0,-1,-3,0,3,False

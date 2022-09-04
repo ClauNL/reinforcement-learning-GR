@@ -1,0 +1,2 @@
+problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
+OUT_PRUEBA/blocks_gr/,1.0,KL,0.5883776242098879,6.05467459025846,3.2504679782726225,6.835125674291842,0,0,True

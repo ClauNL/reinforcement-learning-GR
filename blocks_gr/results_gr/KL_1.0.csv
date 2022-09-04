@@ -1,2 +1,0 @@
-problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
-blocks_gr/,1.0,KL,0.5883783563392236,5.097290227921039,3.8647282986786733,5.8412996395231715,0,0,True

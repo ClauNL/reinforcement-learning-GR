@@ -1,0 +1,2 @@
+problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
+OUT_PRUEBA/blocks_gr/,1.0,DP,-8,0,-4,0,0,0,True

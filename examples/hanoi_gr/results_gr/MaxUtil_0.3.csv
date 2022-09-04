@@ -1,0 +1,2 @@
+problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
+OUT_PRUEBA/hanoi_gr/,0.3,MaxUtil,-1.2239999999998104,-0.005241642003122888,-0.003340267345279451,-0.6236625857161978,0,0,True

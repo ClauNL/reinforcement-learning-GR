@@ -1,4 +1,0 @@
-goal: 0 -  table size: 836
-goal: 1 -  table size: 827
-goal: 2 -  table size: 807
-goal: 3 -  table size: 814

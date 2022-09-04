@@ -1,0 +1,2 @@
+problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
+OUT_PRUEBA/blocks_gr/,0.3,MaxUtil,-0.18969599993168218,-5.960424263512833e-05,-1.1600001054050935,-0.003633556249899746,0,2,False
