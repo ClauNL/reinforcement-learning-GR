@@ -1,2 +1,2 @@
 problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
-OUT_PRUEBA/skgrid_gr/,0.3,DP,-4,-4,-4,-4,0,3,False
+examples/skgrid_gr/,0.3,DP,-4,-4,-4,-4,0,3,False

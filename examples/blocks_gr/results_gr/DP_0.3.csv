@@ -1,2 +1,2 @@
 problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
-OUT_PRUEBA/blocks_gr/,0.3,DP,-3,0,-3,0,0,2,False
+examples/blocks_gr/,0.3,DP,-3,0,-3,0,0,2,False

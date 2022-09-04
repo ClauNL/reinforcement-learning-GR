@@ -93,7 +93,7 @@ def qLearning(env, action_list, q = {},
 
         rewards.append(rewards_current_episode)
 
-    print(len(q))
+    # print(len(q))
 
     rewards_per_100_episodes = np.split(np.array(rewards),num_episodes/100)
     count = 100

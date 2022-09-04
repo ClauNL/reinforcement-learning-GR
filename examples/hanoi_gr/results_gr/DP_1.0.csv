@@ -1,2 +1,2 @@
 problem,obs,metric,g0,g1,g2,g3,real_goal,pred_goal,correct
-OUT_PRUEBA/hanoi_gr/,1.0,DP,-7,-1,-4,-7,0,3,False
+examples/hanoi_gr/,1.0,DP,-7,-1,-4,-7,0,3,False
