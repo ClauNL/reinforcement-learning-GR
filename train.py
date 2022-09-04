@@ -1,6 +1,4 @@
 #!/usr/bin/env python
-import pickle
-from re import template
 import sys
 import dill
 from pddlgym.core import PDDLEnv
